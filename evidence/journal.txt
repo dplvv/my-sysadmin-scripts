@@ -1,0 +1,13 @@
+Oct 06 17:32:30 sysadmin-host systemd[1]: Starting Resource monitoring container...
+Oct 06 17:32:30 sysadmin-host systemd[1]: Started Resource monitoring container.
+Oct 06 17:32:30 sysadmin-host docker[571022]: Monitoring every 5 seconds. Log: /var/www/monitor.log
+Oct 06 17:32:30 sysadmin-host docker[571022]: Press Ctrl+C to stop.
+Oct 06 17:32:30 sysadmin-host docker[571022]: Serving HTTP on 0.0.0.0 port 8080 (http://0.0.0.0:8080/) ...
+Oct 06 17:32:49 sysadmin-host docker[571022]: 172.17.0.1 - - [06/Oct/2026 14:32:49] "HEAD /monitor.log HTTP/1.1" 200 -
+Oct 06 17:36:41 sysadmin-host docker[571022]: 172.17.0.1 - - [06/Oct/2026 14:36:41] "HEAD /monitor.log HTTP/1.0" 200 -
+Oct 06 17:39:16 sysadmin-host docker[571022]: 172.17.0.1 - - [06/Oct/2026 14:39:16] "HEAD / HTTP/1.0" 200 -
+Oct 06 17:39:20 sysadmin-host docker[571022]: 172.17.0.1 - - [06/Oct/2026 14:39:20] "HEAD /monitor.log HTTP/1.0" 200 -
+Oct 06 17:39:26 sysadmin-host docker[571022]: 172.17.0.1 - - [06/Oct/2026 14:39:26] "GET /monitor.log HTTP/1.0" 200 -
+Oct 06 17:39:39 sysadmin-host docker[571022]: 172.17.0.1 - - [06/Oct/2026 14:39:39] "HEAD / HTTP/1.0" 200 -
+Oct 06 17:40:15 sysadmin-host docker[571022]: 172.17.0.1 - - [06/Oct/2026 14:40:15] "HEAD /monitor.log HTTP/1.0" 200 -
+Oct 06 17:41:01 sysadmin-host docker[571022]: 172.17.0.1 - - [06/Oct/2026 14:41:01] "HEAD /monitor.log?check=hw2 HTTP/1.0" 200 -
