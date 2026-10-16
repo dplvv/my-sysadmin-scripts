@@ -13,7 +13,7 @@ done
 
 # Лог располагается рядом со скриптом.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-LOG_FILE="$SCRIPT_DIR/monitor.log"
+LOG_FILE="${LOG_FILE:-$SCRIPT_DIR/monitor.log}"
 
 # Проверяем возможность записи в обычный файл.
 if ! touch -- "$LOG_FILE" || [[ ! -f "$LOG_FILE" || ! -w "$LOG_FILE" ]]; then
