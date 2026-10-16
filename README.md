@@ -1,113 +1,98 @@
-# Мониторинг ресурсов
+# ДЗ №2 — мониторинг ресурсов в Docker
 
-**Домашнее задание №1 · Вариант Б · Ubuntu 22.04 · Bash**
+Вариант Б. Скрипт каждые 5 секунд записывает `free -h`, `df -h` и `uptime` в `monitor.log`.
 
-Bash-скрипт периодически собирает сведения об оперативной памяти, файловых системах и нагрузке, затем дописывает их в `monitor.log`. Каждый блок начинается с временной метки и содержит подписанные разделы.
+## Устройство проекта
 
-## Какие данные собираются
+- Docker запускает мониторинг и HTTP-сервер на порту 8080.
+- Лог хранится на LVM-томе `vg_data/lv_logs`: `/mnt/logs` на хосте подключён к `/var/www` контейнера. Том расширен с 200 до 300 МиБ.
+- RAID 1 из `disk1.img` и `disk2.img` смонтирован в `/mnt/raid`; для LVM используется `disk3.img`.
+- Nginx принимает HTTPS на порту 443, проксирует на `127.0.0.1:8080` и перенаправляет HTTP на HTTPS.
+- `lab-storage.service` восстанавливает хранилище, `my-app.service` запускает контейнер и перезапускает его при ошибке.
 
-| Команда | Содержание отчёта |
-| --- | --- |
-| `free -h` | Общая, используемая и доступная оперативная память, а также swap |
-| `df -h` | Размер, занятое и доступное место в смонтированных файловых системах |
-| `uptime` | Время работы системы, число пользовательских сеансов и средняя нагрузка за 1, 5 и 15 минут |
+## Запуск
 
-Флаг `-h` у `free` и `df` выводит размеры в удобных для чтения единицах.
+Для новой Ubuntu сначала выполните [первоначальную подготовку](docs/hw2-setup.md): установка зависимостей, создание RAID/LVM, `raid.conf`, `raid.uuid` и сертификата. На работающей VM повторно создавать хранилище не нужно.
 
-## Быстрый запуск
-
-Откройте терминал Ubuntu и перейдите в папку репозитория. Скрипту нужны Bash и команды `date`, `free`, `df`, `uptime`, `sleep`, `dirname`, `touch`.
+Команды ниже выполняются из корня репозитория после подготовки. Контейнер `my-app` и его конфигурационные файлы при первой установке ещё не должны существовать:
 
 ```bash
-chmod +x script.sh
-./script.sh
+sudo docker build -t my-script .
+sudo docker create --name my-app \
+  -p 127.0.0.1:8080:8080 \
+  --mount type=bind,src=/mnt/logs,dst=/var/www \
+  my-script
+
+sudo install -m 0755 restore-storage.sh /usr/local/sbin/restore-lab-storage.sh
+sudo cp deploy/*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now lab-storage my-app
+sleep 3
+
+sudo cp deploy/nginx.conf /etc/nginx/sites-available/my-app
+if [ -L /etc/nginx/sites-enabled/default ] &&
+   [ "$(readlink -f /etc/nginx/sites-enabled/default)" = /etc/nginx/sites-available/default ]; then
+    sudo unlink /etc/nginx/sites-enabled/default
+fi
+sudo ln -s /etc/nginx/sites-available/my-app /etc/nginx/sites-enabled/my-app
+sudo nginx -t && sudo systemctl enable --now nginx && sudo systemctl reload nginx
 ```
 
-Первое измерение записывается сразу. Между последующими измерениями выполняется пауза **5 секунд**; интерактивный ввод не требуется. Для завершения нажмите **Ctrl+C**.
+Остановка: `sudo systemctl stop my-app`.
 
-Посмотреть результат после остановки:
+## Проверка
 
 ```bash
-cat monitor.log
+sudo docker ps
+sudo nginx -t
+curl -I http://127.0.0.1:8080/monitor.log
+curl -I http://127.0.0.1/
+curl -kI https://127.0.0.1/monitor.log
+sudo systemctl status my-app --no-pager
+systemctl is-enabled my-app
+cat /proc/mdstat
+sudo pvs
+sudo vgs
+sudo lvs
+df -h /mnt/raid /mnt/logs
+curl -kI 'https://127.0.0.1/monitor.log?check=hw2'
+sudo journalctl -u my-app -n 30 --no-pager
+sudo tail -n 20 /var/log/nginx/access.log
+sudo tail -n 20 /var/log/nginx/error.log
 ```
 
-## Интервал и формат лога
+Ожидается: HTTP на порту 80 — **301**, приложение и HTTPS — **200**; `my-app` — **active (running)** и **enabled**. Для `lab-storage` нормально **active (exited)**. После перезагрузки повторите проверки.
 
-Интервал задаётся константой в `script.sh`:
+Флаг `-k` отключает проверку доверия к самоподписанному сертификату. При запросе с другого компьютера используйте IP-адрес Ubuntu. Проверка с доверием к созданному сертификату: `curl --cacert /etc/ssl/certs/my-app.crt -I https://<IP-из-SAN>/monitor.log`.
+
+Для повторного запуска достаточно `sudo systemctl start my-app`; `docker create` заново не нужен. Перед первым HTTP-запросом дайте приложению около 3 секунд на запуск.
+
+### Docker Compose
+
+Плагин Compose устанавливается в разделе первоначальной подготовки. Это отдельный запуск на порту 8081.
 
 ```bash
-INTERVAL=5
+sudo systemctl stop my-app
+sudo docker compose up -d --build
+sleep 3
+sudo docker compose ps
+curl -I http://127.0.0.1:8081/monitor.log
+sudo docker compose down
+sudo systemctl start my-app
 ```
 
-Чтобы изменить паузу, отредактируйте это значение и перезапустите скрипт. Расстояние между временными метками может быть немного больше заданного интервала из-за времени выполнения команд.
+## Что прикрепить к сдаче
 
-Каждый блок содержит:
+Ссылка на версию `hw2` и скриншоты: сборка/запуск Docker; RAID и `df`; LVM до и после расширения с контрольным файлом; успешный `nginx -t`; HTTPS `200` с другого компьютера; `systemctl status` и `is-enabled`; запрос в journal и `access.log`. Один скриншот может подтверждать несколько пунктов.
 
-1. Временную метку в формате `--- YYYY-MM-DD HH:MM:SS ±HHMM ---` с часовым поясом системы.
-2. Раздел `[free -h]` с результатом проверки памяти.
-3. Раздел `[df -h]` с результатом проверки файловых систем.
-4. Раздел `[uptime]` со временем работы и нагрузкой.
+## Результаты
 
-`monitor.log` создаётся **рядом со скриптом**, независимо от текущей папки запуска. Перенаправление `>>` добавляет новые блоки в конец файла, поэтому повторный запуск сохраняет предыдущие записи.
+- [Скриншоты проверок ДЗ №2](screenshots/hw2/).
 
-## Структура репозитория
-
-```text
-my-sysadmin-scripts/
-├── .gitignore
-├── README.md
-├── script.sh
-└── sample_output.txt
-```
-
-| Файл | Назначение |
-| --- | --- |
-| `script.sh` | Сбор показателей, запись в лог и обработка ошибок |
-| `README.md` | Описание проекта, запуск и проверки |
-| `sample_output.txt` | Сохранённый пример содержимого лога |
-| `.gitignore` | Исключение рабочих файлов `monitor.log` и `monitor-draft.log` из Git |
-
-После реального запуска пример вывода можно обновить командой:
-
-```bash
-cp monitor.log sample_output.txt
-```
-
-## Обработка ошибок
-
-| Ситуация | Поведение скрипта |
-| --- | --- |
-| Отсутствует необходимая команда | Сообщает название команды и завершается с кодом `1` |
-| Невозможно создать или записать файл лога | Сообщает путь к файлу и завершается с кодом `1` |
-| Возникает ошибка выполнения | Выводит сообщение с номером строки и завершается с ненулевым кодом |
-| Получен сигнал остановки `SIGINT` или `SIGTERM` | Выводит `Monitoring stopped.` и завершает работу |
-
-В скрипте используются `set -Eeuo pipefail` и обработчики `trap`: они помогают обнаруживать ошибки и управлять завершением работы.
-
-## Проверка работы
-
-Ниже приведены проверки и **ожидаемые результаты**.
-
-| Проверка | Действие | Ожидаемый результат |
-| --- | --- | --- |
-| Синтаксис Bash | `bash -n script.sh` | Нет сообщений об ошибках, код завершения `0` |
-| Сбор показателей | Запустить `./script.sh` на 15–20 секунд и остановить Ctrl+C | Не менее трёх блоков с временными метками и всеми тремя разделами |
-| Повторный запуск | Запустить и остановить скрипт ещё раз | Новые блоки добавлены, предыдущие записи сохранены |
-| Остановка | Нажать Ctrl+C во время работы | Появилось сообщение `Monitoring stopped.`, управление вернулось в терминал |
-
-### Проверка ошибки записи
-
-Сначала выполните обычный запуск, чтобы появился `monitor.log`. Затем от имени обычного пользователя `ubuntu`, без `sudo`, выполните:
-
-```bash
-chmod a-w monitor.log
-./script.sh
-echo $?
-chmod u+w monitor.log
-```
-
-Ожидается сообщение `Error: cannot write to log file` и код завершения `1`. Последняя команда восстанавливает право записи в лог.
-
----
+- [Пример мониторинга](sample_output.txt) — три полных измерения.
+- [Сборка образа](evidence/docker-build.txt).
+- [Проверка Nginx](evidence/nginx-test.txt).
+- [Ответ HTTPS](evidence/https-headers.txt).
+- [Журнал службы](evidence/journal.txt) и [запросы Nginx](evidence/nginx-access.txt).
 
 **Автор:** Поливаев Дмитрий Дмитриевич.
